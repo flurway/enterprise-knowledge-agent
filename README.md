@@ -154,30 +154,28 @@ python evals/run_kb_eval.py \
 python evals/run_rag_pipeline_eval.py --no-report
 ```
 
-## 可选 LangGraph Adapter
+## LangGraph Runtime
 
-项目默认不依赖 LangGraph，避免把核心可靠性逻辑绑定到单一框架。`agent/langgraph_adapter.py` 提供一个可选适配层：
+项目提供 LangGraph runtime 分支实现，同时保留自研 runtime 作为 baseline。核心可靠性逻辑仍然复用本项目已有模块，LangGraph 负责高层节点编排。
 
-- `LangGraphAdapter.describe()`：不安装 LangGraph 也可以查看 graph 结构。
-- `LangGraphAdapter.build()`：安装 `langgraph` 后，可构建或编译 LangGraph graph。
-- 节点 handler 可注入，便于逐步把现有 `classify/retrieve_memory/plan/execute/review` 等节点绑定到 LangGraph。
+- `agent/langgraph_adapter.py`：定义 graph 节点、边和条件路由。
+- `agent/langgraph_runtime.py`：把真实节点 handler 绑定到现有 orchestrator、runtime、tool policy、memory 和 eval 链路。
+- `AGENT_RUNTIME_BACKEND=custom`：使用自研 ReAct-centered runtime。
+- `AGENT_RUNTIME_BACKEND=langgraph`：使用 LangGraph-native runtime。
 
-可选安装：
+运行 LangGraph runtime：
 
 ```bash
-pip install langgraph
+AGENT_RUNTIME_BACKEND=langgraph python cli.py chat
 ```
 
-示例：
+查看 graph 结构：
 
 ```python
 from agent.langgraph_adapter import LangGraphAdapter
 
 adapter = LangGraphAdapter()
 print(adapter.describe())
-
-# Requires: pip install langgraph
-graph = adapter.build()
 ```
 
 ## 企业知识库 Fixture

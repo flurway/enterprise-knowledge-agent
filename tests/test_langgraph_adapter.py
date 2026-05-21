@@ -3,6 +3,7 @@ import unittest
 from agent.langgraph_adapter import (
     LangGraphAdapter,
     LangGraphUnavailableError,
+    route_after_classify,
     route_after_intent,
     route_after_reflection,
 )
@@ -51,6 +52,7 @@ class LangGraphAdapterTests(unittest.TestCase):
         self.assertEqual(spec["entry_node"], "classify")
         self.assertEqual(spec["finish_node"], "finish")
         self.assertIn("retrieve_memory", spec["nodes"])
+        self.assertIn("route_classified", spec["conditional_routes"])
         self.assertIn("route_intent", spec["conditional_routes"])
         self.assertIn("reflect", spec["conditional_routes"])
         self.assertIn({"from": "plan", "to": "validate_plan"}, spec["edges"])
@@ -71,10 +73,10 @@ class LangGraphAdapterTests(unittest.TestCase):
         self.assertIn("classify", builder.nodes)
         self.assertIn(("__start__", "classify"), builder.edges)
         self.assertIn(("finish", "__end__"), builder.edges)
-        self.assertEqual(len(builder.conditional_edges), 2)
+        self.assertEqual(len(builder.conditional_edges), 3)
 
         route_names = {start for start, _, _ in builder.conditional_edges}
-        self.assertEqual(route_names, {"route_intent", "reflect"})
+        self.assertEqual(route_names, {"route_classified", "route_intent", "reflect"})
 
     def test_build_supports_custom_handlers_and_checkpointer(self):
         marker = object()
@@ -91,12 +93,14 @@ class LangGraphAdapterTests(unittest.TestCase):
         self.assertIs(graph.checkpointer, marker)
 
     def test_routes_match_runtime_decisions(self):
+        self.assertEqual(route_after_classify({"short_circuit": True}), "finish")
+        self.assertEqual(route_after_classify({"short_circuit": False}), "retrieve_memory")
         self.assertEqual(route_after_intent({"intent": "direct_search"}), "direct_search")
         self.assertEqual(route_after_intent({"intent": "deep_research"}), "plan")
         self.assertEqual(route_after_reflection({"needs_replan": True}), "replan")
         self.assertEqual(route_after_reflection({"needs_replan": False}), "synthesize")
+        self.assertEqual(route_after_reflection({"skip_synthesis": True}), "validate_answer")
 
 
 if __name__ == "__main__":
     unittest.main()
-

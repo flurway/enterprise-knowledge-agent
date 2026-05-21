@@ -64,6 +64,7 @@ class AgentConfig:
     max_reflection_rounds: int = 3
     confidence_threshold: float = 0.7
     max_context_tokens: int = 12000
+    runtime_backend: str = os.getenv("AGENT_RUNTIME_BACKEND", "custom")
     enable_trace_persistence: bool = True
     trace_db_path: str = "./data/agent_traces.sqlite3"
 

@@ -82,6 +82,10 @@ class ResearchAgent:
         return self.sessions[session_id]
 
     async def chat(self, user_message: str, session_id: str = "default") -> dict:
+        if config.agent.runtime_backend == "langgraph":
+            from agent.langgraph_runtime import LangGraphResearchRuntime
+            return await LangGraphResearchRuntime(self).chat(user_message, session_id)
+
         memory = self.get_or_create_session(session_id)
         run = AgentRun(session_id=session_id, user_message=user_message)
         stage_reminder = StageReminderManager(constraints=default_stage_constraints())

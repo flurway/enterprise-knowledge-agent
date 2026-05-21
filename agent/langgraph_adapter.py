@@ -8,7 +8,7 @@ keeping the project runnable without that optional dependency.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Mapping, TypedDict
+from typing import Any, Awaitable, Callable, Mapping, TypedDict
 
 from agent.runtime import RuntimeNode
 
@@ -30,12 +30,13 @@ class ReliableAgentGraphState(TypedDict, total=False):
     visited_nodes: list[str]
 
 
-GraphNodeHandler = Callable[[ReliableAgentGraphState], dict[str, Any]]
+GraphNodeHandler = Callable[[ReliableAgentGraphState], dict[str, Any] | Awaitable[dict[str, Any]]]
 LangGraphImporter = Callable[[], tuple[Any, str, str]]
 
 
 DEFAULT_LANGGRAPH_NODES: tuple[str, ...] = (
     RuntimeNode.CLASSIFY.value,
+    "route_classified",
     RuntimeNode.RETRIEVE_MEMORY.value,
     "route_intent",
     RuntimeNode.DIRECT_SEARCH.value,
@@ -52,7 +53,7 @@ DEFAULT_LANGGRAPH_NODES: tuple[str, ...] = (
 
 
 DEFAULT_LANGGRAPH_EDGES: tuple[tuple[str, str], ...] = (
-    (RuntimeNode.CLASSIFY.value, RuntimeNode.RETRIEVE_MEMORY.value),
+    (RuntimeNode.CLASSIFY.value, "route_classified"),
     (RuntimeNode.RETRIEVE_MEMORY.value, "route_intent"),
     (RuntimeNode.DIRECT_SEARCH.value, RuntimeNode.VALIDATE_ANSWER.value),
     (RuntimeNode.PLAN.value, RuntimeNode.VALIDATE_PLAN.value),
@@ -76,6 +77,11 @@ def _import_langgraph() -> tuple[Any, str, str]:
     return StateGraph, START, END
 
 
+def route_after_classify(state: ReliableAgentGraphState) -> str:
+    """Route terminal chitchat/clarification/conflict answers to finish."""
+    return RuntimeNode.FINISH.value if state.get("short_circuit") else RuntimeNode.RETRIEVE_MEMORY.value
+
+
 def route_after_intent(state: ReliableAgentGraphState) -> str:
     """Route direct search separately from deeper plan/execute workflows."""
     return (
@@ -87,6 +93,8 @@ def route_after_intent(state: ReliableAgentGraphState) -> str:
 
 def route_after_reflection(state: ReliableAgentGraphState) -> str:
     """Route failed/insufficient execution back to replan when requested."""
+    if state.get("skip_synthesis"):
+        return RuntimeNode.VALIDATE_ANSWER.value
     return RuntimeNode.REPLAN.value if state.get("needs_replan") else RuntimeNode.SYNTHESIZE.value
 
 
@@ -115,6 +123,7 @@ class LangGraphAdapter:
     nodes: tuple[str, ...] = DEFAULT_LANGGRAPH_NODES
     edges: tuple[tuple[str, str], ...] = DEFAULT_LANGGRAPH_EDGES
     conditional_routes: dict[str, Callable[[ReliableAgentGraphState], str]] = field(default_factory=lambda: {
+        "route_classified": route_after_classify,
         "route_intent": route_after_intent,
         RuntimeNode.REFLECT.value: route_after_reflection,
     })
@@ -154,6 +163,14 @@ class LangGraphAdapter:
             builder.add_edge(start, end)
 
         builder.add_conditional_edges(
+            "route_classified",
+            self.conditional_routes["route_classified"],
+            {
+                RuntimeNode.RETRIEVE_MEMORY.value: RuntimeNode.RETRIEVE_MEMORY.value,
+                RuntimeNode.FINISH.value: RuntimeNode.FINISH.value,
+            },
+        )
+        builder.add_conditional_edges(
             "route_intent",
             self.conditional_routes["route_intent"],
             {
@@ -167,6 +184,7 @@ class LangGraphAdapter:
             {
                 RuntimeNode.REPLAN.value: RuntimeNode.REPLAN.value,
                 RuntimeNode.SYNTHESIZE.value: RuntimeNode.SYNTHESIZE.value,
+                RuntimeNode.VALIDATE_ANSWER.value: RuntimeNode.VALIDATE_ANSWER.value,
             },
         )
         builder.add_edge(RuntimeNode.FINISH.value, END)
@@ -176,4 +194,3 @@ class LangGraphAdapter:
         if checkpointer is None:
             return builder.compile()
         return builder.compile(checkpointer=checkpointer)
-

@@ -8,6 +8,9 @@ python-multipart>=0.0.6
 # LLM API (DeepSeek 兼容 OpenAI SDK)
 openai>=1.6.0
 
+# Agent runtime
+langgraph>=0.2.0
+
 # 向量检索
 faiss-cpu>=1.7.4
 sentence-transformers>=2.2.0

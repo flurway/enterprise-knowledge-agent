@@ -83,7 +83,7 @@ class ResearchAgent:
 
     async def chat(self, user_message: str, session_id: str = "default") -> dict:
         if config.agent.runtime_backend == "langgraph":
-            from agent.langgraph_runtime import LangGraphResearchRuntime
+            from agent.langgraph.runtime import LangGraphResearchRuntime
             return await LangGraphResearchRuntime(self).chat(user_message, session_id)
 
         memory = self.get_or_create_session(session_id)

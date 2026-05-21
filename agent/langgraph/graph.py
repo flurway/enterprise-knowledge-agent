@@ -1,15 +1,9 @@
-"""
-LangGraph workflow builder for the reliable agent runtime.
-
-This module defines the production LangGraph topology for the research agent.
-It keeps node wiring separate from node handlers so orchestration can evolve
-without duplicating tool, memory, policy, or trace logic.
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Mapping, TypedDict
+from typing import Any, Awaitable, Callable, Mapping
 
+from agent.langgraph.state import ResearchGraphState
 from agent.runtime import RuntimeNode
 
 
@@ -17,24 +11,11 @@ class LangGraphUnavailableError(ImportError):
     """Raised when the langgraph runtime dependency is missing."""
 
 
-class ResearchWorkflowState(TypedDict, total=False):
-    run_id: str
-    session_id: str
-    user_message: str
-    refined_query: str
-    intent: str
-    plan: dict[str, Any]
-    result: dict[str, Any]
-    needs_replan: bool
-    error: str
-    visited_nodes: list[str]
-
-
-GraphNodeHandler = Callable[[ResearchWorkflowState], dict[str, Any] | Awaitable[dict[str, Any]]]
+GraphNodeHandler = Callable[[ResearchGraphState], dict[str, Any] | Awaitable[dict[str, Any]]]
 LangGraphImporter = Callable[[], tuple[Any, str, str]]
 
 
-DEFAULT_LANGGRAPH_NODES: tuple[str, ...] = (
+GRAPH_NODES: tuple[str, ...] = (
     RuntimeNode.CLASSIFY.value,
     "route_classified",
     RuntimeNode.RETRIEVE_MEMORY.value,
@@ -52,7 +33,7 @@ DEFAULT_LANGGRAPH_NODES: tuple[str, ...] = (
 )
 
 
-DEFAULT_LANGGRAPH_EDGES: tuple[tuple[str, str], ...] = (
+GRAPH_EDGES: tuple[tuple[str, str], ...] = (
     (RuntimeNode.CLASSIFY.value, "route_classified"),
     (RuntimeNode.RETRIEVE_MEMORY.value, "route_intent"),
     (RuntimeNode.DIRECT_SEARCH.value, RuntimeNode.VALIDATE_ANSWER.value),
@@ -66,7 +47,7 @@ DEFAULT_LANGGRAPH_EDGES: tuple[tuple[str, str], ...] = (
 )
 
 
-def _import_langgraph() -> tuple[Any, str, str]:
+def import_langgraph() -> tuple[Any, str, str]:
     try:
         from langgraph.graph import END, START, StateGraph
     except ImportError as exc:
@@ -77,51 +58,27 @@ def _import_langgraph() -> tuple[Any, str, str]:
     return StateGraph, START, END
 
 
-def route_after_classify(state: ResearchWorkflowState) -> str:
-    """Route terminal chitchat/clarification/conflict answers to finish."""
+def route_after_classify(state: ResearchGraphState) -> str:
     return RuntimeNode.FINISH.value if state.get("short_circuit") else RuntimeNode.RETRIEVE_MEMORY.value
 
 
-def route_after_intent(state: ResearchWorkflowState) -> str:
-    """Route direct search separately from deeper plan/execute workflows."""
-    return (
-        RuntimeNode.DIRECT_SEARCH.value
-        if state.get("intent") == "direct_search"
-        else RuntimeNode.PLAN.value
-    )
+def route_after_intent(state: ResearchGraphState) -> str:
+    return RuntimeNode.DIRECT_SEARCH.value if state.get("intent") == "direct_search" else RuntimeNode.PLAN.value
 
 
-def route_after_reflection(state: ResearchWorkflowState) -> str:
-    """Route failed/insufficient execution back to replan when requested."""
+def route_after_reflection(state: ResearchGraphState) -> str:
     if state.get("skip_synthesis"):
         return RuntimeNode.VALIDATE_ANSWER.value
     return RuntimeNode.REPLAN.value if state.get("needs_replan") else RuntimeNode.SYNTHESIZE.value
 
 
-def _passthrough_node(node_name: str) -> GraphNodeHandler:
-    def run(state: ResearchWorkflowState) -> dict[str, Any]:
-        visited = list(state.get("visited_nodes", []))
-        visited.append(node_name)
-        return {"visited_nodes": visited}
-
-    run.__name__ = f"{node_name}_node"
-    return run
-
-
 @dataclass
-class LangGraphWorkflowBuilder:
-    """
-    Build the LangGraph workflow used by the langgraph runtime.
-
-    Node handlers are injectable so the runtime can bind graph nodes to concrete
-    orchestration functions while tests can still use lightweight fakes.
-    """
-
-    importer: LangGraphImporter = _import_langgraph
-    state_schema: Any = ResearchWorkflowState
-    nodes: tuple[str, ...] = DEFAULT_LANGGRAPH_NODES
-    edges: tuple[tuple[str, str], ...] = DEFAULT_LANGGRAPH_EDGES
-    conditional_routes: dict[str, Callable[[ResearchWorkflowState], str]] = field(default_factory=lambda: {
+class ResearchGraphBuilder:
+    importer: LangGraphImporter = import_langgraph
+    state_schema: Any = ResearchGraphState
+    nodes: tuple[str, ...] = GRAPH_NODES
+    edges: tuple[tuple[str, str], ...] = GRAPH_EDGES
+    conditional_routes: dict[str, Callable[[ResearchGraphState], str]] = field(default_factory=lambda: {
         "route_classified": route_after_classify,
         "route_intent": route_after_intent,
         RuntimeNode.REFLECT.value: route_after_reflection,
@@ -145,17 +102,18 @@ class LangGraphWorkflowBuilder:
 
     def build(
         self,
-        handlers: Mapping[str, GraphNodeHandler] | None = None,
+        handlers: Mapping[str, GraphNodeHandler],
         *,
         checkpointer: Any | None = None,
         compile_graph: bool = True,
     ) -> Any:
         StateGraph, START, END = self.importer()
         builder = StateGraph(self.state_schema)
-        handler_map = dict(handlers or {})
 
         for node in self.nodes:
-            builder.add_node(node, handler_map.get(node, _passthrough_node(node)))
+            if node not in handlers:
+                raise ValueError(f"Missing LangGraph node handler: {node}")
+            builder.add_node(node, handlers[node])
 
         builder.add_edge(START, RuntimeNode.CLASSIFY.value)
         for start, end in self.edges:
@@ -193,3 +151,4 @@ class LangGraphWorkflowBuilder:
         if checkpointer is None:
             return builder.compile()
         return builder.compile(checkpointer=checkpointer)
+

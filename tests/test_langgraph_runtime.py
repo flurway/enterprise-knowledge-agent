@@ -13,7 +13,7 @@ if "openai" not in sys.modules:
     fake_openai.AsyncOpenAI = FakeAsyncOpenAI
     sys.modules["openai"] = fake_openai
 
-from agent.langgraph_runtime import LangGraphResearchRuntime, ResearchGraphState
+from agent.langgraph.runtime import LangGraphResearchRuntime, ResearchGraphState
 
 
 class FakeMemory:
@@ -25,7 +25,7 @@ class FakeMemory:
         self.turns.append((role, content, metadata or {}))
 
 
-class FakeWorkflow:
+class FakeGraph:
     def __init__(self):
         self.state_schema = None
         self.handlers = None
@@ -65,21 +65,21 @@ class FakeAgent:
 
 
 class LangGraphResearchRuntimeTests(unittest.TestCase):
-    def test_default_workflow_uses_full_research_graph_state(self):
+    def test_default_graph_builder_uses_full_research_graph_state(self):
         runtime = LangGraphResearchRuntime(FakeAgent())
-        self.assertIs(runtime.workflow.state_schema, ResearchGraphState)
+        self.assertIs(runtime.graph_builder.state_schema, ResearchGraphState)
 
     def test_chat_uses_graph_handlers_and_finishes_short_circuit_result(self):
-        workflow = FakeWorkflow()
-        runtime = LangGraphResearchRuntime(FakeAgent(), workflow=workflow)
+        graph_builder = FakeGraph()
+        runtime = LangGraphResearchRuntime(FakeAgent(), graph_builder=graph_builder)
 
         result = asyncio.run(runtime.chat("采用新记忆", session_id="s"))
 
         self.assertEqual(result["response"], "resolved")
         self.assertEqual(result["intent"], "memory_conflict_review")
         self.assertIn("run_id", result)
-        self.assertIn("classify", workflow.handlers)
-        self.assertIn("finish", workflow.handlers)
+        self.assertIn("classify", graph_builder.handlers)
+        self.assertIn("finish", graph_builder.handlers)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,3 @@
-"""
-LangGraph-native orchestration for ResearchAgent.
-
-The graph owns high-level control flow. Existing project components still own
-domain behavior: tool policy, dispatcher, hooks, memory, answer validation, and
-trace persistence.
-"""
 from __future__ import annotations
 
 import logging
@@ -17,82 +10,37 @@ from agent.intent import (
     INTENT_FOLLOW_UP,
     INTENT_NEED_CLARIFY,
 )
-from agent.langgraph_workflow import LangGraphWorkflowBuilder, ResearchWorkflowState
-from agent.runtime import AgentRuntime, PermissionMode, ReActLoop, RuntimeMode, RuntimeNode
-from agent.stage_reminder import StageReminderManager, default_stage_constraints
-from agent.state import AgentRun
+from agent.langgraph.state import ResearchGraphState
+from agent.runtime import ReActLoop, RuntimeMode, RuntimeNode
 
 logger = logging.getLogger(__name__)
 
 
-class ResearchGraphState(ResearchWorkflowState, total=False):
-    original_query: str
-    search_query: str
-    sub_questions: list[str]
-    memory: Any
-    run: AgentRun
-    runtime: AgentRuntime
-    lt_ctx: str
-    conflict_notices: list[dict]
-    executor: TaskExecutor
-    all_step_results: list[Any]
-    failed_result: Any
-    failed_step: dict[str, Any]
-    reflection: dict[str, Any]
-    hallucination_check: dict[str, Any]
-    replan_count: int
-    short_circuit: bool
-    skip_synthesis: bool
+class ResearchGraphNodes:
+    """LangGraph node handlers backed by the existing ResearchAgent components."""
 
-
-class LangGraphResearchRuntime:
-    def __init__(self, agent: Any, workflow: LangGraphWorkflowBuilder | None = None):
+    def __init__(self, agent: Any):
         self.agent = agent
-        self.workflow = workflow or LangGraphWorkflowBuilder(state_schema=ResearchGraphState)
 
-    async def chat(self, user_message: str, session_id: str = "default") -> dict:
-        memory = self.agent.get_or_create_session(session_id)
-        run = AgentRun(session_id=session_id, user_message=user_message)
-        runtime = AgentRuntime(
-            run,
-            stage_reminder=StageReminderManager(constraints=default_stage_constraints()),
-        )
-        runtime.set_permission_mode(PermissionMode.AUTO, "LangGraph runtime can execute allowed low/medium-risk tools")
-
-        initial_state: ResearchGraphState = {
-            "session_id": session_id,
-            "user_message": user_message,
-            "original_query": user_message,
-            "memory": memory,
-            "run": run,
-            "runtime": runtime,
-            "all_step_results": [],
-            "conflict_notices": [],
-            "replan_count": 0,
-        }
-        graph = self.workflow.build(handlers=self._handlers())
-        final_state = await graph.ainvoke(initial_state)
-        return final_state["final_result"]
-
-    def _handlers(self) -> dict[str, Any]:
+    def handlers(self) -> dict[str, Any]:
         return {
-            RuntimeNode.CLASSIFY.value: self._classify,
-            "route_classified": self._route_passthrough,
-            RuntimeNode.RETRIEVE_MEMORY.value: self._retrieve_memory,
-            "route_intent": self._route_passthrough,
-            RuntimeNode.DIRECT_SEARCH.value: self._direct_search,
-            RuntimeNode.PLAN.value: self._plan,
-            RuntimeNode.VALIDATE_PLAN.value: self._validate_plan,
-            RuntimeNode.EXECUTE_STEP.value: self._execute_step,
-            RuntimeNode.REFLECT.value: self._reflect,
-            RuntimeNode.REPLAN.value: self._replan,
-            RuntimeNode.SYNTHESIZE.value: self._synthesize,
-            RuntimeNode.VALIDATE_ANSWER.value: self._validate_answer,
-            RuntimeNode.SAVE_MEMORY.value: self._save_memory,
-            RuntimeNode.FINISH.value: self._finish,
+            RuntimeNode.CLASSIFY.value: self.classify,
+            "route_classified": self.route_passthrough,
+            RuntimeNode.RETRIEVE_MEMORY.value: self.retrieve_memory,
+            "route_intent": self.route_passthrough,
+            RuntimeNode.DIRECT_SEARCH.value: self.direct_search,
+            RuntimeNode.PLAN.value: self.plan,
+            RuntimeNode.VALIDATE_PLAN.value: self.validate_plan,
+            RuntimeNode.EXECUTE_STEP.value: self.execute_step,
+            RuntimeNode.REFLECT.value: self.reflect,
+            RuntimeNode.REPLAN.value: self.replan,
+            RuntimeNode.SYNTHESIZE.value: self.synthesize,
+            RuntimeNode.VALIDATE_ANSWER.value: self.validate_answer,
+            RuntimeNode.SAVE_MEMORY.value: self.save_memory,
+            RuntimeNode.FINISH.value: self.finish,
         }
 
-    async def _classify(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def classify(self, state: ResearchGraphState) -> dict[str, Any]:
         memory = state["memory"]
         run = state["run"]
         runtime = state["runtime"]
@@ -155,10 +103,10 @@ class LangGraphResearchRuntime:
             "short_circuit": False,
         }
 
-    async def _route_passthrough(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def route_passthrough(self, state: ResearchGraphState) -> dict[str, Any]:
         return {}
 
-    async def _retrieve_memory(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def retrieve_memory(self, state: ResearchGraphState) -> dict[str, Any]:
         runtime = state["runtime"]
         run = state["run"]
         runtime.enter_node(RuntimeNode.RETRIEVE_MEMORY, "Retrieving long-term memory")
@@ -170,7 +118,7 @@ class LangGraphResearchRuntime:
             "conflict_notices": bundle["conflict_notices"],
         }
 
-    async def _direct_search(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def direct_search(self, state: ResearchGraphState) -> dict[str, Any]:
         runtime = state["runtime"]
         runtime.set_mode(RuntimeMode.EXECUTE, "Direct search can execute read-only retrieval tools")
         result = await self.agent._handle_direct_search(
@@ -182,7 +130,7 @@ class LangGraphResearchRuntime:
         )
         return {"result": result}
 
-    async def _plan(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def plan(self, state: ResearchGraphState) -> dict[str, Any]:
         runtime = state["runtime"]
         runtime.set_mode(RuntimeMode.PLAN, "Creating plan before executing deep research")
         runtime.enter_node(RuntimeNode.PLAN, "Creating research plan", query=state["search_query"])
@@ -202,7 +150,7 @@ class LangGraphResearchRuntime:
             "needs_replan": False,
         }
 
-    async def _validate_plan(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def validate_plan(self, state: ResearchGraphState) -> dict[str, Any]:
         runtime = state["runtime"]
         plan = state["plan"]
         runtime.set_plan(plan)
@@ -212,7 +160,7 @@ class LangGraphResearchRuntime:
         errors = runtime.validate_plan(plan)
         return {"plan_validation_errors": errors}
 
-    async def _execute_step(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def execute_step(self, state: ResearchGraphState) -> dict[str, Any]:
         runtime = state["runtime"]
         executor = state["executor"]
         steps = list(state.get("steps", []))
@@ -253,7 +201,7 @@ class LangGraphResearchRuntime:
             "skip_synthesis": False,
         }
 
-    async def _reflect(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def reflect(self, state: ResearchGraphState) -> dict[str, Any]:
         runtime = state["runtime"]
         failed = state.get("failed_result")
         if state.get("skip_synthesis"):
@@ -292,7 +240,7 @@ class LangGraphResearchRuntime:
             "needs_replan": False,
         }
 
-    async def _replan(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def replan(self, state: ResearchGraphState) -> dict[str, Any]:
         failed = state["failed_result"]
         new_plan = await self.agent.planner.replan(
             original_plan=state["plan"],
@@ -312,7 +260,7 @@ class LangGraphResearchRuntime:
             "needs_replan": False,
         }
 
-    async def _synthesize(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def synthesize(self, state: ResearchGraphState) -> dict[str, Any]:
         runtime = state["runtime"]
         executor = state["executor"]
         all_results = list(state.get("all_step_results", []))
@@ -347,12 +295,12 @@ class LangGraphResearchRuntime:
             "hallucination_check": hallucination_check,
         }
 
-    async def _validate_answer(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def validate_answer(self, state: ResearchGraphState) -> dict[str, Any]:
         result = dict(state.get("result", {}))
         self.agent._attach_conflict_aware_answer(result, state.get("conflict_notices", []), state["run"])
         return {"result": result}
 
-    async def _save_memory(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def save_memory(self, state: ResearchGraphState) -> dict[str, Any]:
         result = state.get("result", {})
         memory = state["memory"]
         memory.add_turn("user", state["original_query"], {"intent": state.get("intent", "")})
@@ -374,6 +322,7 @@ class LangGraphResearchRuntime:
         result["intent"] = state.get("intent", "")
         return {"result": result}
 
-    async def _finish(self, state: ResearchGraphState) -> dict[str, Any]:
+    async def finish(self, state: ResearchGraphState) -> dict[str, Any]:
         result = self.agent._finish_result(state.get("result", {}), state["run"])
         return {"final_result": result}
+

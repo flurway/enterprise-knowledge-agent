@@ -19,8 +19,10 @@ the existing reliability modules.
 
 - Control flow: `StateGraph` nodes and conditional edges
 - State: `ResearchGraphState`
-- Graph definition: `agent/langgraph_workflow.py`
-- Runtime binding: `agent/langgraph_runtime.py`
+- State schema: `agent/langgraph/state.py`
+- Graph definition: `agent/langgraph/graph.py`
+- Node handlers: `agent/langgraph/nodes.py`
+- Runtime entry: `agent/langgraph/runtime.py`
 - Strengths: graph-native control flow, clearer branch structure, future path to checkpoint/resume/human confirmation
 - Tradeoff: more framework coupling and a dependency on LangGraph
 
@@ -53,6 +55,5 @@ Compare branches if the migration is developed separately:
 
 ```bash
 git diff master..codex/langgraph-runtime --stat
-git diff master..codex/langgraph-runtime -- agent/orchestrator.py agent/langgraph_runtime.py
+git diff master..codex/langgraph-runtime -- agent/orchestrator.py agent/langgraph
 ```
-

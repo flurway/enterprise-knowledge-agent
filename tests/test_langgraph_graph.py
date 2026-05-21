@@ -1,7 +1,7 @@
 import unittest
 
-from agent.langgraph_workflow import (
-    LangGraphWorkflowBuilder,
+from agent.langgraph.graph import (
+    ResearchGraphBuilder,
     LangGraphUnavailableError,
     route_after_classify,
     route_after_intent,
@@ -45,9 +45,13 @@ def missing_importer():
     raise LangGraphUnavailableError("missing")
 
 
-class LangGraphWorkflowBuilderTests(unittest.TestCase):
+def all_handlers():
+    return {node: (lambda state: {}) for node in ResearchGraphBuilder().nodes}
+
+
+class ResearchGraphBuilderTests(unittest.TestCase):
     def test_describe_exposes_runtime_graph_shape_without_dependency(self):
-        spec = LangGraphWorkflowBuilder(importer=missing_importer).describe()
+        spec = ResearchGraphBuilder(importer=missing_importer).describe()
 
         self.assertEqual(spec["entry_node"], "classify")
         self.assertEqual(spec["finish_node"], "finish")
@@ -58,20 +62,20 @@ class LangGraphWorkflowBuilderTests(unittest.TestCase):
         self.assertIn({"from": "plan", "to": "validate_plan"}, spec["edges"])
 
     def test_availability_reflects_optional_dependency(self):
-        self.assertFalse(LangGraphWorkflowBuilder(importer=missing_importer).is_available())
-        self.assertTrue(LangGraphWorkflowBuilder(importer=fake_importer).is_available())
+        self.assertFalse(ResearchGraphBuilder(importer=missing_importer).is_available())
+        self.assertTrue(ResearchGraphBuilder(importer=fake_importer).is_available())
 
     def test_build_raises_clear_error_when_langgraph_missing(self):
-        workflow = LangGraphWorkflowBuilder(importer=missing_importer)
+        graph_builder = ResearchGraphBuilder(importer=missing_importer)
         with self.assertRaises(LangGraphUnavailableError):
-            workflow.build()
+            graph_builder.build(handlers={})
 
     def test_build_creates_langgraph_builder_with_routes(self):
-        graph = LangGraphWorkflowBuilder(importer=fake_importer).build()
+        graph = ResearchGraphBuilder(importer=fake_importer).build(handlers=all_handlers())
         builder = graph.builder
 
         self.assertIn("classify", builder.nodes)
-        self.assertEqual(builder.state_type.__name__, "ResearchWorkflowState")
+        self.assertEqual(builder.state_type.__name__, "ResearchGraphState")
         self.assertIn(("__start__", "classify"), builder.edges)
         self.assertIn(("finish", "__end__"), builder.edges)
         self.assertEqual(len(builder.conditional_edges), 3)
@@ -85,8 +89,10 @@ class LangGraphWorkflowBuilderTests(unittest.TestCase):
         def classify_handler(state):
             return {"intent": "direct_search"}
 
-        graph = LangGraphWorkflowBuilder(importer=fake_importer).build(
-            handlers={"classify": classify_handler},
+        handlers = all_handlers()
+        handlers["classify"] = classify_handler
+        graph = ResearchGraphBuilder(importer=fake_importer).build(
+            handlers=handlers,
             checkpointer=marker,
         )
 
@@ -97,12 +103,18 @@ class LangGraphWorkflowBuilderTests(unittest.TestCase):
         class CustomState(dict):
             pass
 
-        graph = LangGraphWorkflowBuilder(
+        graph = ResearchGraphBuilder(
             importer=fake_importer,
             state_schema=CustomState,
-        ).build()
+        ).build(handlers=all_handlers())
 
         self.assertIs(graph.builder.state_type, CustomState)
+
+    def test_build_requires_explicit_handlers_for_all_nodes(self):
+        with self.assertRaises(ValueError) as cm:
+            ResearchGraphBuilder(importer=fake_importer).build(handlers={"classify": lambda state: {}})
+
+        self.assertIn("Missing LangGraph node handler", str(cm.exception))
 
     def test_routes_match_runtime_decisions(self):
         self.assertEqual(route_after_classify({"short_circuit": True}), "finish")

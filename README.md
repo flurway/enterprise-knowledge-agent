@@ -158,8 +158,10 @@ python evals/run_rag_pipeline_eval.py --no-report
 
 项目提供 LangGraph runtime 分支实现，同时保留自研 runtime 作为 baseline。核心可靠性逻辑仍然复用本项目已有模块，LangGraph 负责高层节点编排。
 
-- `agent/langgraph_workflow.py`：定义 graph 节点、边和条件路由。
-- `agent/langgraph_runtime.py`：把真实节点 handler 绑定到现有 orchestrator、runtime、tool policy、memory 和 eval 链路。
+- `agent/langgraph/state.py`：定义 LangGraph 共享状态结构。
+- `agent/langgraph/graph.py`：定义 graph 节点、边和条件路由。
+- `agent/langgraph/nodes.py`：把真实节点 handler 绑定到现有 orchestrator、runtime、tool policy、memory 和 eval 链路。
+- `agent/langgraph/runtime.py`：初始化 graph state 并执行 `StateGraph`。
 - `AGENT_RUNTIME_BACKEND=custom`：使用自研 ReAct-centered runtime。
 - `AGENT_RUNTIME_BACKEND=langgraph`：使用 LangGraph-native runtime。
 
@@ -172,10 +174,10 @@ AGENT_RUNTIME_BACKEND=langgraph python cli.py chat
 查看 graph 结构：
 
 ```python
-from agent.langgraph_workflow import LangGraphWorkflowBuilder
+from agent.langgraph.graph import ResearchGraphBuilder
 
-workflow = LangGraphWorkflowBuilder()
-print(workflow.describe())
+graph_builder = ResearchGraphBuilder()
+print(graph_builder.describe())
 ```
 
 ## 企业知识库 Fixture

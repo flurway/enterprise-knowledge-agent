@@ -31,7 +31,7 @@
 - `PermissionMode` 支持 plan-only、read-only、ask、auto。
 - Plan 会转为 Todo List，由 ReAct loop 按依赖和权限逐步执行。
 - 每个节点、步骤、工具调用和最终回答都可以进入 trace。
-- 提供可选 LangGraph Adapter，可将现有 runtime 节点映射为 LangGraph 图结构，而不强制替换当前主流程。
+- LangGraph runtime 分支将节点编排迁移为 `StateGraph`，同时保留自研 runtime 作为 baseline 对比。
 
 ### 工具治理
 
@@ -158,7 +158,7 @@ python evals/run_rag_pipeline_eval.py --no-report
 
 项目提供 LangGraph runtime 分支实现，同时保留自研 runtime 作为 baseline。核心可靠性逻辑仍然复用本项目已有模块，LangGraph 负责高层节点编排。
 
-- `agent/langgraph_adapter.py`：定义 graph 节点、边和条件路由。
+- `agent/langgraph_workflow.py`：定义 graph 节点、边和条件路由。
 - `agent/langgraph_runtime.py`：把真实节点 handler 绑定到现有 orchestrator、runtime、tool policy、memory 和 eval 链路。
 - `AGENT_RUNTIME_BACKEND=custom`：使用自研 ReAct-centered runtime。
 - `AGENT_RUNTIME_BACKEND=langgraph`：使用 LangGraph-native runtime。
@@ -172,10 +172,10 @@ AGENT_RUNTIME_BACKEND=langgraph python cli.py chat
 查看 graph 结构：
 
 ```python
-from agent.langgraph_adapter import LangGraphAdapter
+from agent.langgraph_workflow import LangGraphWorkflowBuilder
 
-adapter = LangGraphAdapter()
-print(adapter.describe())
+workflow = LangGraphWorkflowBuilder()
+print(workflow.describe())
 ```
 
 ## 企业知识库 Fixture

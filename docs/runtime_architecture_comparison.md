@@ -19,7 +19,7 @@ the existing reliability modules.
 
 - Control flow: `StateGraph` nodes and conditional edges
 - State: `ResearchGraphState`
-- Graph definition: `agent/langgraph_adapter.py`
+- Graph definition: `agent/langgraph_workflow.py`
 - Runtime binding: `agent/langgraph_runtime.py`
 - Strengths: graph-native control flow, clearer branch structure, future path to checkpoint/resume/human confirmation
 - Tradeoff: more framework coupling and a dependency on LangGraph

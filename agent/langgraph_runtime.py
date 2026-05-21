@@ -17,7 +17,7 @@ from agent.intent import (
     INTENT_FOLLOW_UP,
     INTENT_NEED_CLARIFY,
 )
-from agent.langgraph_adapter import LangGraphAdapter, ReliableAgentGraphState
+from agent.langgraph_workflow import LangGraphWorkflowBuilder, ResearchWorkflowState
 from agent.runtime import AgentRuntime, PermissionMode, ReActLoop, RuntimeMode, RuntimeNode
 from agent.stage_reminder import StageReminderManager, default_stage_constraints
 from agent.state import AgentRun
@@ -25,7 +25,7 @@ from agent.state import AgentRun
 logger = logging.getLogger(__name__)
 
 
-class ResearchGraphState(ReliableAgentGraphState, total=False):
+class ResearchGraphState(ResearchWorkflowState, total=False):
     original_query: str
     search_query: str
     sub_questions: list[str]
@@ -46,9 +46,9 @@ class ResearchGraphState(ReliableAgentGraphState, total=False):
 
 
 class LangGraphResearchRuntime:
-    def __init__(self, agent: Any, adapter: LangGraphAdapter | None = None):
+    def __init__(self, agent: Any, workflow: LangGraphWorkflowBuilder | None = None):
         self.agent = agent
-        self.adapter = adapter or LangGraphAdapter()
+        self.workflow = workflow or LangGraphWorkflowBuilder(state_schema=ResearchGraphState)
 
     async def chat(self, user_message: str, session_id: str = "default") -> dict:
         memory = self.agent.get_or_create_session(session_id)
@@ -70,7 +70,7 @@ class LangGraphResearchRuntime:
             "conflict_notices": [],
             "replan_count": 0,
         }
-        graph = self.adapter.build(handlers=self._handlers())
+        graph = self.workflow.build(handlers=self._handlers())
         final_state = await graph.ainvoke(initial_state)
         return final_state["final_result"]
 
@@ -377,4 +377,3 @@ class LangGraphResearchRuntime:
     async def _finish(self, state: ResearchGraphState) -> dict[str, Any]:
         result = self.agent._finish_result(state.get("result", {}), state["run"])
         return {"final_result": result}
-

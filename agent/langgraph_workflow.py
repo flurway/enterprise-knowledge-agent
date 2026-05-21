@@ -1,9 +1,9 @@
 """
-Optional LangGraph adapter for the reliable agent runtime.
+LangGraph workflow builder for the reliable agent runtime.
 
-This module does not replace AgentRuntime. It exposes the current runtime
-control-flow as a LangGraph-compatible graph when langgraph is installed, while
-keeping the project runnable without that optional dependency.
+This module defines the production LangGraph topology for the research agent.
+It keeps node wiring separate from node handlers so orchestration can evolve
+without duplicating tool, memory, policy, or trace logic.
 """
 from __future__ import annotations
 
@@ -14,10 +14,10 @@ from agent.runtime import RuntimeNode
 
 
 class LangGraphUnavailableError(ImportError):
-    """Raised when the optional langgraph dependency is required but missing."""
+    """Raised when the langgraph runtime dependency is missing."""
 
 
-class ReliableAgentGraphState(TypedDict, total=False):
+class ResearchWorkflowState(TypedDict, total=False):
     run_id: str
     session_id: str
     user_message: str
@@ -30,7 +30,7 @@ class ReliableAgentGraphState(TypedDict, total=False):
     visited_nodes: list[str]
 
 
-GraphNodeHandler = Callable[[ReliableAgentGraphState], dict[str, Any] | Awaitable[dict[str, Any]]]
+GraphNodeHandler = Callable[[ResearchWorkflowState], dict[str, Any] | Awaitable[dict[str, Any]]]
 LangGraphImporter = Callable[[], tuple[Any, str, str]]
 
 
@@ -71,18 +71,18 @@ def _import_langgraph() -> tuple[Any, str, str]:
         from langgraph.graph import END, START, StateGraph
     except ImportError as exc:
         raise LangGraphUnavailableError(
-            "LangGraph is optional. Install it with `pip install langgraph` "
+            "LangGraph is required for the langgraph runtime. Install it with `pip install langgraph` "
             "to build a compiled graph."
         ) from exc
     return StateGraph, START, END
 
 
-def route_after_classify(state: ReliableAgentGraphState) -> str:
+def route_after_classify(state: ResearchWorkflowState) -> str:
     """Route terminal chitchat/clarification/conflict answers to finish."""
     return RuntimeNode.FINISH.value if state.get("short_circuit") else RuntimeNode.RETRIEVE_MEMORY.value
 
 
-def route_after_intent(state: ReliableAgentGraphState) -> str:
+def route_after_intent(state: ResearchWorkflowState) -> str:
     """Route direct search separately from deeper plan/execute workflows."""
     return (
         RuntimeNode.DIRECT_SEARCH.value
@@ -91,7 +91,7 @@ def route_after_intent(state: ReliableAgentGraphState) -> str:
     )
 
 
-def route_after_reflection(state: ReliableAgentGraphState) -> str:
+def route_after_reflection(state: ResearchWorkflowState) -> str:
     """Route failed/insufficient execution back to replan when requested."""
     if state.get("skip_synthesis"):
         return RuntimeNode.VALIDATE_ANSWER.value
@@ -99,7 +99,7 @@ def route_after_reflection(state: ReliableAgentGraphState) -> str:
 
 
 def _passthrough_node(node_name: str) -> GraphNodeHandler:
-    def run(state: ReliableAgentGraphState) -> dict[str, Any]:
+    def run(state: ResearchWorkflowState) -> dict[str, Any]:
         visited = list(state.get("visited_nodes", []))
         visited.append(node_name)
         return {"visited_nodes": visited}
@@ -109,20 +109,19 @@ def _passthrough_node(node_name: str) -> GraphNodeHandler:
 
 
 @dataclass
-class LangGraphAdapter:
+class LangGraphWorkflowBuilder:
     """
-    Build a LangGraph view of the existing runtime nodes.
+    Build the LangGraph workflow used by the langgraph runtime.
 
-    Node handlers are injectable so production code can bind each LangGraph node
-    to the existing orchestrator/runtime functions incrementally. Missing
-    handlers become traceable passthrough nodes, which is useful for graph
-    visualization and early integration tests.
+    Node handlers are injectable so the runtime can bind graph nodes to concrete
+    orchestration functions while tests can still use lightweight fakes.
     """
 
     importer: LangGraphImporter = _import_langgraph
+    state_schema: Any = ResearchWorkflowState
     nodes: tuple[str, ...] = DEFAULT_LANGGRAPH_NODES
     edges: tuple[tuple[str, str], ...] = DEFAULT_LANGGRAPH_EDGES
-    conditional_routes: dict[str, Callable[[ReliableAgentGraphState], str]] = field(default_factory=lambda: {
+    conditional_routes: dict[str, Callable[[ResearchWorkflowState], str]] = field(default_factory=lambda: {
         "route_classified": route_after_classify,
         "route_intent": route_after_intent,
         RuntimeNode.REFLECT.value: route_after_reflection,
@@ -152,7 +151,7 @@ class LangGraphAdapter:
         compile_graph: bool = True,
     ) -> Any:
         StateGraph, START, END = self.importer()
-        builder = StateGraph(ReliableAgentGraphState)
+        builder = StateGraph(self.state_schema)
         handler_map = dict(handlers or {})
 
         for node in self.nodes:

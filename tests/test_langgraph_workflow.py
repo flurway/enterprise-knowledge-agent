@@ -1,7 +1,7 @@
 import unittest
 
-from agent.langgraph_adapter import (
-    LangGraphAdapter,
+from agent.langgraph_workflow import (
+    LangGraphWorkflowBuilder,
     LangGraphUnavailableError,
     route_after_classify,
     route_after_intent,
@@ -45,9 +45,9 @@ def missing_importer():
     raise LangGraphUnavailableError("missing")
 
 
-class LangGraphAdapterTests(unittest.TestCase):
+class LangGraphWorkflowBuilderTests(unittest.TestCase):
     def test_describe_exposes_runtime_graph_shape_without_dependency(self):
-        spec = LangGraphAdapter(importer=missing_importer).describe()
+        spec = LangGraphWorkflowBuilder(importer=missing_importer).describe()
 
         self.assertEqual(spec["entry_node"], "classify")
         self.assertEqual(spec["finish_node"], "finish")
@@ -58,19 +58,20 @@ class LangGraphAdapterTests(unittest.TestCase):
         self.assertIn({"from": "plan", "to": "validate_plan"}, spec["edges"])
 
     def test_availability_reflects_optional_dependency(self):
-        self.assertFalse(LangGraphAdapter(importer=missing_importer).is_available())
-        self.assertTrue(LangGraphAdapter(importer=fake_importer).is_available())
+        self.assertFalse(LangGraphWorkflowBuilder(importer=missing_importer).is_available())
+        self.assertTrue(LangGraphWorkflowBuilder(importer=fake_importer).is_available())
 
     def test_build_raises_clear_error_when_langgraph_missing(self):
-        adapter = LangGraphAdapter(importer=missing_importer)
+        workflow = LangGraphWorkflowBuilder(importer=missing_importer)
         with self.assertRaises(LangGraphUnavailableError):
-            adapter.build()
+            workflow.build()
 
     def test_build_creates_langgraph_builder_with_routes(self):
-        graph = LangGraphAdapter(importer=fake_importer).build()
+        graph = LangGraphWorkflowBuilder(importer=fake_importer).build()
         builder = graph.builder
 
         self.assertIn("classify", builder.nodes)
+        self.assertEqual(builder.state_type.__name__, "ResearchWorkflowState")
         self.assertIn(("__start__", "classify"), builder.edges)
         self.assertIn(("finish", "__end__"), builder.edges)
         self.assertEqual(len(builder.conditional_edges), 3)
@@ -84,13 +85,24 @@ class LangGraphAdapterTests(unittest.TestCase):
         def classify_handler(state):
             return {"intent": "direct_search"}
 
-        graph = LangGraphAdapter(importer=fake_importer).build(
+        graph = LangGraphWorkflowBuilder(importer=fake_importer).build(
             handlers={"classify": classify_handler},
             checkpointer=marker,
         )
 
         self.assertIs(graph.builder.nodes["classify"], classify_handler)
         self.assertIs(graph.checkpointer, marker)
+
+    def test_build_accepts_runtime_specific_state_schema(self):
+        class CustomState(dict):
+            pass
+
+        graph = LangGraphWorkflowBuilder(
+            importer=fake_importer,
+            state_schema=CustomState,
+        ).build()
+
+        self.assertIs(graph.builder.state_type, CustomState)
 
     def test_routes_match_runtime_decisions(self):
         self.assertEqual(route_after_classify({"short_circuit": True}), "finish")

@@ -31,6 +31,7 @@
 - `PermissionMode` 支持 plan-only、read-only、ask、auto。
 - Plan 会转为 Todo List，由 ReAct loop 按依赖和权限逐步执行。
 - 每个节点、步骤、工具调用和最终回答都可以进入 trace。
+- 提供可选 LangGraph Adapter，可将现有 runtime 节点映射为 LangGraph 图结构，而不强制替换当前主流程。
 
 ### 工具治理
 
@@ -153,6 +154,32 @@ python evals/run_kb_eval.py \
 python evals/run_rag_pipeline_eval.py --no-report
 ```
 
+## 可选 LangGraph Adapter
+
+项目默认不依赖 LangGraph，避免把核心可靠性逻辑绑定到单一框架。`agent/langgraph_adapter.py` 提供一个可选适配层：
+
+- `LangGraphAdapter.describe()`：不安装 LangGraph 也可以查看 graph 结构。
+- `LangGraphAdapter.build()`：安装 `langgraph` 后，可构建或编译 LangGraph graph。
+- 节点 handler 可注入，便于逐步把现有 `classify/retrieve_memory/plan/execute/review` 等节点绑定到 LangGraph。
+
+可选安装：
+
+```bash
+pip install langgraph
+```
+
+示例：
+
+```python
+from agent.langgraph_adapter import LangGraphAdapter
+
+adapter = LangGraphAdapter()
+print(adapter.describe())
+
+# Requires: pip install langgraph
+graph = adapter.build()
+```
+
 ## 企业知识库 Fixture
 
 `evals/fixtures/enterprise_knowledge_base/` 提供一套虚构企业“云舟企服”的复杂业务文档，覆盖：
@@ -196,4 +223,3 @@ python evals/run_rag_pipeline_eval.py --no-report
 - sentence-transformers
 - OpenAI-compatible LLM client
 - SQLite trace store
-

@@ -1,0 +1,7 @@
+{"id":"mem-conflict-001","category":"english_negation","existing":"RAG can improve citation accuracy.","incoming":"RAG cannot improve citation accuracy.","expected_conflict":true}
+{"id":"mem-conflict-002","category":"chinese_negation","existing":"RAG 可以提升引用准确率。","incoming":"RAG 不可以提升引用准确率。","expected_conflict":true}
+{"id":"mem-conflict-003","category":"recommendation_flip","existing":"这个方案推荐用于生产环境。","incoming":"这个方案不推荐用于生产环境。","expected_conflict":true}
+{"id":"mem-conflict-004","category":"safety_flip","existing":"这个工具在只读模式下是安全的。","incoming":"这个工具在自动写文件模式下是不安全的。","expected_conflict":true}
+{"id":"mem-conflict-005","category":"compatible_extension","existing":"RAG can improve citation accuracy.","incoming":"RAG can improve answer grounding.","expected_conflict":false}
+{"id":"mem-conflict-006","category":"both_negative_compatible","existing":"RAG cannot replace citations.","incoming":"RAG cannot replace source tracing.","expected_conflict":false}
+{"id":"mem-conflict-007","category":"different_preferences","existing":"用户偏好: 先看结论再看细节。","incoming":"用户偏好: 回答时使用中文。","expected_conflict":false}

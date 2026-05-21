@@ -4,28 +4,15 @@
 import json
 import logging
 from models.deepseek import llm_client
-from config import config
+from config import config, get_current_date, get_current_year
 
 logger = logging.getLogger(__name__)
 
-PLANNER_SYSTEM_PROMPT = """你是研究任务规划器。给定研究问题，制定分步执行计划。
 
-## 规划原则
-1. 每步是一个"可验证的阶段性成果"
-2. 控制在 3-6 步
-3. 步骤间有依赖关系
-4. 最后一步必须是综合/生成报告
-
-## 可用工具
-- search_knowledge_base: 检索文档
-- read_document_detail: 深入阅读文档
-- summarize_content: 摘要
-- compare_concepts: 对比
-- generate_research_report: 生成报告
-- ask_user_clarification: 向用户提问
-
-## 输出格式 (严格JSON)
-{
+def _build_planner_prompt() -> str:
+    year = get_current_year()
+    prev_year = str(int(year) - 1)
+    json_example = """{
     "research_goal": "研究目标",
     "complexity": "simple|medium|complex",
     "steps": [
@@ -40,6 +27,38 @@ PLANNER_SYSTEM_PROMPT = """你是研究任务规划器。给定研究问题，�
         }
     ]
 }"""
+    return f"""你是研究任务规划器。给定研究问题，制定分步执行计划。
+当前日期: {get_current_date()}
+
+## 规划原则
+1. 每步是一个"可验证的阶段性成果"
+2. 控制在 3-6 步
+3. 步骤间有依赖关系
+4. 最后一步必须是综合/生成报告
+
+## 可用工具
+- search_knowledge_base: 从已上传的知识库检索文档 (优先使用)
+- web_search: 在互联网搜索信息 (知识库不足时使用，或需要最新信息时)
+- fetch_webpage: 抓取某个网页的完整内容 (搜索结果摘要不够时深入阅读)
+- read_document_detail: 深入阅读知识库中的某个文档
+- summarize_content: 摘要
+- compare_concepts: 对比
+- generate_research_report: 生成报告
+- ask_user_clarification: 向用户提问
+
+## 工具使用策略
+1. 知识库优先: 先用 search_knowledge_base 在已有文档中搜索
+2. 搜索补充: 如果知识库结果不足或用户问的是最新信息，用 web_search 补充
+3. 深入阅读: 搜索结果的摘要不够详细时，用 fetch_webpage 抓取原文
+4. 不要同时发起太多搜索: 每次最多 2 个搜索步骤
+
+## 时间感知
+- 当前年份是 {year} 年
+- 用户提到"最新/最近/近期"时，搜索 query 中应包含 "{year}" 或 "{prev_year}" 等年份关键词
+- 示例: 用户问"最新的LLM进展" → query 应为 "LLM 进展 {year}" 而非 "LLM 进展"
+
+## 输出格式 (严格JSON)
+{json_example}"""
 
 
 class TaskPlanner:
@@ -52,7 +71,7 @@ class TaskPlanner:
         content += "\n\n请制定计划，返回JSON。"
 
         plan = await llm_client.get_json_response([
-            {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
+            {"role": "system", "content": _build_planner_prompt()},
             {"role": "user", "content": content},
         ])
         if not plan or "steps" not in plan:
@@ -65,7 +84,7 @@ class TaskPlanner:
     async def replan(self, original_plan: dict, completed_steps: list[dict],
                      failed_step: dict, failure_reason: str) -> dict:
         plan = await llm_client.get_json_response([
-            {"role": "system", "content": PLANNER_SYSTEM_PROMPT + "\n\n你需要修改计划，因为某步失败了。只输出尚未完成的新步骤。"},
+            {"role": "system", "content": _build_planner_prompt() + "\n\n你需要修改计划，因为某步失败了。只输出尚未完成的新步骤。"},
             {"role": "user", "content": (
                 f"原计划: {json.dumps(original_plan, ensure_ascii=False)[:1000]}\n"
                 f"已完成: {json.dumps(completed_steps, ensure_ascii=False)}\n"

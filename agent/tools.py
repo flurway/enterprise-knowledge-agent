@@ -86,6 +86,47 @@ AGENT_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "web_search",
+            "description": (
+                "在互联网上搜索信息。当知识库中没有足够信息、需要最新资料、"
+                "或用户的问题超出已有文档范围时使用。"
+                "返回搜索结果的标题、摘要和链接。"
+                "优先使用知识库检索，知识库不足时再用搜索补充。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "搜索关键词，尽量精确具体"},
+                    "search_type": {
+                        "type": "string", "enum": ["text", "news"],
+                        "description": "搜索类型: text=网页搜索, news=新闻搜索", "default": "text",
+                    },
+                    "max_results": {"type": "integer", "description": "最大结果数", "default": 8},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_webpage",
+            "description": (
+                "抓取某个网页的完整内容。当搜索结果的摘要不够详细，"
+                "需要深入阅读原文时使用。输入URL，返回提取后的正文。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "要抓取的网页URL"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "ask_user_clarification",
             "description": "向用户提出澄清问题。",
             "parameters": {

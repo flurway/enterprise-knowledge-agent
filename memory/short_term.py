@@ -5,6 +5,7 @@ import time
 import logging
 from typing import Optional
 from dataclasses import dataclass, field
+from security.trusted_context import build_untrusted_context_message
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +85,10 @@ class ConversationMemory:
 
         if rag_context:
             messages.append({
-                "role": "system",
-                "content": f"[检索到的相关文档]\n请基于以下内容回答，并标注引用来源 [来源N]:\n\n{rag_context}",
+                "role": "user",
+                "content": build_untrusted_context_message(
+                    f"请基于以下内容回答，并标注引用来源 [来源N]:\n\n{rag_context}"
+                ),
             })
 
         messages.append({"role": "user", "content": current_query})

@@ -1,5 +1,15 @@
 import os
+from datetime import datetime
 from dataclasses import dataclass, field
+
+
+def get_current_date() -> str:
+    """返回当前日期字符串，注入到所有 System Prompt 中"""
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def get_current_year() -> str:
+    return datetime.now().strftime("%Y")
 
 
 @dataclass
@@ -24,6 +34,8 @@ class RAGConfig:
     top_k_sparse: int = 20
     top_k_rerank: int = 8
     faiss_index_path: str = "./data/faiss_index"
+    knowledge_base_dir: str = ""    # 知识库目录，启动时自动扫描索引
+    supported_extensions: tuple = (".txt", ".md", ".pdf")
     use_gpu: bool = False
     nprobe: int = 10
 
@@ -35,6 +47,15 @@ class MemoryConfig:
     long_term_index_path: str = "./data/long_term_memory"
     max_long_term_results: int = 5
     memory_decay_days: int = 30
+    retrieval_min_score: float = 0.3
+    retrieval_type_limits: dict = field(default_factory=lambda: {
+        "preference": 2,
+        "constraint": 2,
+        "research_summary": 2,
+        "episode": 1,
+        "hypothesis": 1,
+        "conflict": 0,
+    })
 
 
 @dataclass
@@ -43,6 +64,8 @@ class AgentConfig:
     max_reflection_rounds: int = 3
     confidence_threshold: float = 0.7
     max_context_tokens: int = 12000
+    enable_trace_persistence: bool = True
+    trace_db_path: str = "./data/agent_traces.sqlite3"
 
 
 @dataclass

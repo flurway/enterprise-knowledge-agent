@@ -64,14 +64,15 @@ def print_banner():
 def print_help():
     print(f"""{C.DIM}
 命令:
-  /upload <file>    上传文档到知识库
-  /search <query>   直接 Web 搜索（不走 Agent 规划）
-  /docs             查看已索引文档
-  /memory           查看记忆状态
-  /clear            清空当前会话
-  /session <id>     切换会话
-  /help             显示帮助
-  /quit             退出
+  /upload <file>     上传单个文档到知识库
+  /index <dir>       索引整个目录 (增量，跳过已索引文件)
+  /search <query>    直接 Web 搜索（不走 Agent 规划）
+  /docs              查看已索引文档
+  /memory            查看记忆状态
+  /clear             清空当前会话
+  /session <id>      切换会话
+  /help              显示帮助
+  /quit              退出
 
 提示: 直接输入问题即可，即使没有上传文档也能通过 Web 搜索回答
 {C.RESET}""")
@@ -103,6 +104,50 @@ class CLIApp:
 
         self.agent = ResearchAgent(self.retriever)
         self._initialized = True
+
+        # 如果配置了知识库目录，启动时自动增量索引
+        if config.rag.knowledge_base_dir and os.path.isdir(config.rag.knowledge_base_dir):
+            print(f"{C.CYAN}⟳ 检测到知识库目录: {config.rag.knowledge_base_dir}{C.RESET}")
+            self.index_directory(config.rag.knowledge_base_dir)
+
+    def index_directory(self, directory: str):
+        """索引整个目录（增量）"""
+        from rag.indexer import DirectoryIndexer
+
+        if not os.path.isdir(directory):
+            print(f"{C.RED}✗ 目录不存在: {directory}{C.RESET}")
+            return False
+
+        indexer = DirectoryIndexer(self.retriever)
+
+        # 先扫描，报告发现的文件
+        scan = indexer.scan_directory(directory)
+        to_index = len(scan["new_files"]) + len(scan["updated_files"])
+        print(f"{C.BOLD}📂 扫描目录: {directory}{C.RESET}")
+        print(f"  新文件: {len(scan['new_files'])}  |  已修改: {len(scan['updated_files'])}  |  "
+              f"已索引(跳过): {len(scan['skipped_files'])}  |  不支持: {len(scan['unsupported_files'])}")
+
+        if to_index == 0:
+            print(f"{C.GREEN}✓ 所有文件均已索引，无需更新{C.RESET}\n")
+            return True
+
+        # 执行索引，带进度回调
+        def progress(filename, current, total):
+            print(f"  {C.CYAN}[{current}/{total}]{C.RESET} 索引中: {filename}", end="\r")
+
+        result = indexer.index_directory(directory, progress_callback=progress)
+        print(" " * 60, end="\r")  # 清除进度行
+
+        print(f"{C.GREEN}✓ 索引完成: {result['indexed']} 个文件已索引, "
+              f"{result['skipped']} 个跳过, {result['failed']} 个失败{C.RESET}")
+        if result["errors"]:
+            for err in result["errors"][:5]:
+                print(f"  {C.RED}✗ {err}{C.RESET}")
+        if self.retriever.faiss_index:
+            print(f"{C.DIM}  知识库总计: {self.retriever.faiss_index.ntotal} 个向量, "
+                  f"{len(self.retriever.chunks)} 个片段{C.RESET}")
+        print()
+        return True
 
     def upload_document(self, filepath: str, strategy: str = "recursive"):
         """上传文档"""
@@ -246,6 +291,13 @@ def format_response(result: dict):
             url_part = f"\n     {C.CYAN}{src}{C.RESET}" if src.startswith('http') else ""
             print(f"  {C.DIM}[{cid}] {info.get('doc_title','')}{sec}{C.RESET}{url_part}")
 
+    memory_conflicts = result.get("memory_conflicts", [])
+    if memory_conflicts:
+        print(f"\n{C.YELLOW}⚠️  待确认记忆冲突:{C.RESET}")
+        for item in memory_conflicts[:3]:
+            print(f"  {C.DIM}#{item.get('conflict_index')} {item.get('conflict_type')} · "
+                  f"{item.get('resolution_strategy')}{C.RESET}")
+
     # Reflection
     reflection = result.get("reflection")
     if reflection and reflection.get("scores"):
@@ -305,6 +357,11 @@ async def interactive_loop(app: CLIApp):
                     app.upload_document(filepath, strategy)
                 else:
                     print(f"{C.YELLOW}用法: /upload <文件路径>{C.RESET}")
+            elif cmd == "/index":
+                if len(parts) > 1:
+                    app.index_directory(parts[1].strip())
+                else:
+                    print(f"{C.YELLOW}用法: /index <目录路径>{C.RESET}")
             elif cmd == "/search":
                 if len(parts) > 1:
                     query = parts[1].strip()
@@ -350,10 +407,15 @@ def main():
     chat_p.add_argument("--session", default="cli_default", help="会话 ID")
 
     # upload 子命令
-    upload_p = sub.add_parser("upload", help="上传文档")
+    upload_p = sub.add_parser("upload", help="上传单个文档")
     upload_p.add_argument("file", help="文件路径")
     upload_p.add_argument("--strategy", choices=["recursive", "structured"], default="recursive")
     upload_p.add_argument("--chat", action="store_true", help="上传后直接进入对话")
+
+    # index 子命令
+    index_p = sub.add_parser("index", help="索引整个目录 (增量)")
+    index_p.add_argument("directory", help="目录路径")
+    index_p.add_argument("--chat", action="store_true", help="索引后直接进入对话")
 
     # status 子命令
     sub.add_parser("status", help="查看系统状态")
@@ -368,6 +430,12 @@ def main():
         if ok and args.chat:
             asyncio.run(interactive_loop(app))
 
+    elif args.command == "index":
+        app.initialize()
+        ok = app.index_directory(args.directory)
+        if ok and args.chat:
+            asyncio.run(interactive_loop(app))
+
     elif args.command == "status":
         app.initialize()
         app.show_docs()
@@ -376,6 +444,8 @@ def main():
         print(f"  DeepSeek API Key: {'✓ 已设置' if config.deepseek.api_key else '✗ 未设置 (export DEEPSEEK_API_KEY=...)'}")
         print(f"  Embedding 模型: {config.rag.embedding_model}")
         print(f"  数据目录: {config.data_dir}")
+        if config.rag.knowledge_base_dir:
+            print(f"  知识库目录: {config.rag.knowledge_base_dir}")
         print()
 
     elif args.command == "chat" or args.command is None:

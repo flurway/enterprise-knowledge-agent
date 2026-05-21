@@ -5,6 +5,7 @@ import logging
 from typing import Optional
 from models.deepseek import llm_client
 from memory.short_term import ConversationMemory
+from config import get_current_date, get_current_year
 
 logger = logging.getLogger(__name__)
 
@@ -14,17 +15,10 @@ INTENT_DEEP_RESEARCH = "deep_research"
 INTENT_FOLLOW_UP = "follow_up"
 INTENT_CHITCHAT = "chitchat"
 
-INTENT_SYSTEM_PROMPT = """你是研究助手的意图分析模块。分析用户提问的意图类型。
 
-## 意图类型
-1. direct_search: 明确的可直接检索的问题 (如: "BERT预训练目标是什么？")
-2. need_clarify: 太模糊/太大，需要引导 (如: "帮我了解大模型")
-3. deep_research: 需要多步分析的复杂问题 (如: "对比RAG和Fine-tune的适用场景")
-4. follow_up: 基于上文的追问 (如: "那第二种呢？")
-5. chitchat: 闲聊 (如: "你好")
-
-## 输出格式 (严格JSON)
-{
+def _build_intent_prompt() -> str:
+    year = get_current_year()
+    json_example = """{
     "intent": "意图类型",
     "confidence": 0.0-1.0,
     "refined_query": "优化后的检索query",
@@ -33,11 +27,29 @@ INTENT_SYSTEM_PROMPT = """你是研究助手的意图分析模块。分析用户
     "sub_questions": ["拆解的子问题"],
     "reasoning": "判断理由"
 }"""
+    return f"""你是研究助手的意图分析模块。分析用户提问的意图类型。
+当前日期: {get_current_date()}
+
+## 意图类型
+1. direct_search: 明确的可直接检索的问题 (如: "BERT预训练目标是什么？")
+2. need_clarify: 太模糊/太大，需要引导 (如: "帮我了解大模型")
+3. deep_research: 需要多步分析的复杂问题 (如: "对比RAG和Fine-tune的适用场景")
+   注意: 即使知识库里没有相关文档，复杂问题仍应判为 deep_research，因为系统可以通过 Web 搜索获取信息
+4. follow_up: 基于上文的追问 (如: "那第二种呢？")
+5. chitchat: 闲聊 (如: "你好")
+
+## 时间感知
+- 当前年份是 {year} 年
+- 当用户提到"最新/最近/近期"时，在 refined_query 中加入年份约束 (如 "{year}")
+- 示例: "最新的LLM进展" → refined_query: "LLM 最新进展 {year}"
+
+## 输出格式 (严格JSON)
+{json_example}"""
 
 
 class IntentClassifier:
     async def classify(self, user_query: str, conversation_memory: Optional[ConversationMemory] = None) -> dict:
-        messages = [{"role": "system", "content": INTENT_SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": _build_intent_prompt()}]
         if conversation_memory and conversation_memory.turns:
             recent = conversation_memory.get_recent_turns(n=3)
             ctx = "\n".join([f"{'用户' if t['role']=='user' else '助手'}: {t['content'][:200]}" for t in recent])

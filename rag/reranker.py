@@ -56,9 +56,9 @@ class CrossEncoderReranker:
 
 
 class CitationTracer:
-    def build_citation_context(self, results: list[RetrievalResult]) -> tuple[str, dict]:
+    def build_citation_context(self, results: list[RetrievalResult], start_index: int = 1) -> tuple[str, dict]:
         parts, cmap = [], {}
-        for i, r in enumerate(results, 1):
+        for i, r in enumerate(results, start_index):
             c = r.chunk
             cid = str(i)
             cmap[cid] = {

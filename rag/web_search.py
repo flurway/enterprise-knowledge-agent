@@ -56,6 +56,7 @@ class WebSearcher:
         max_results: Optional[int] = None,
         region: str = "cn-zh",
         search_type: str = "text",
+        timelimit: Optional[str] = None,
     ) -> list[SearchResult]:
         """
         执行 Web 搜索
@@ -65,22 +66,31 @@ class WebSearcher:
             max_results: 最大结果数
             region: 搜索区域 (cn-zh 中文优先, wt-wt 全球)
             search_type: text / news
+            timelimit: 时间范围 'd'=过去一天 'w'=一周 'm'=一月 'y'=一年，None=不限
         
         Returns:
             SearchResult 列表
         """
         k = max_results or self.max_results
+
+        # 自动检测时间敏感查询：包含"最新/最近/近期/2025/2026"等词时限制为近一年
+        if timelimit is None:
+            time_keywords = ["最新", "最近", "近期", "latest", "recent", "新进展", "新发展"]
+            if any(kw in query for kw in time_keywords):
+                timelimit = "y"
         
         # 在线程池中执行同步搜索 (duckduckgo-search 是同步库)
         loop = asyncio.get_event_loop()
         try:
             if search_type == "news":
                 raw_results = await loop.run_in_executor(
-                    None, lambda: list(self._get_ddgs().news(query, max_results=k, region=region))
+                    None, lambda: list(self._get_ddgs().news(query, max_results=k, region=region,
+                                                             timelimit=timelimit))
                 )
             else:
                 raw_results = await loop.run_in_executor(
-                    None, lambda: list(self._get_ddgs().text(query, max_results=k, region=region))
+                    None, lambda: list(self._get_ddgs().text(query, max_results=k, region=region,
+                                                             timelimit=timelimit))
                 )
         except Exception as e:
             logger.error(f"Web search failed: {e}")
@@ -159,6 +169,8 @@ class WebFetcher:
     def __init__(self, timeout: int = 15, max_content_length: int = 8000):
         self.timeout = timeout
         self.max_content_length = max_content_length
+        self.max_redirects = 3
+        self.max_response_bytes = 2_000_000
 
     async def fetch(self, url: str) -> Optional[WebPage]:
         """
@@ -174,6 +186,12 @@ class WebFetcher:
 
     def _fetch_sync(self, url: str) -> Optional[WebPage]:
         import requests
+        from security.url_safety import FetchSafetyLimits, check_response_safety, check_url_safety
+
+        initial_decision = check_url_safety(url)
+        if not initial_decision.allowed:
+            logger.warning(f"Unsafe fetch URL blocked: {url} → {initial_decision.reason}")
+            return None
         
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -181,10 +199,46 @@ class WebFetcher:
             "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         }
 
-        resp = requests.get(url, headers=headers, timeout=self.timeout, allow_redirects=True)
+        session = requests.Session()
+        session.max_redirects = self.max_redirects
+        resp = session.get(url, headers=headers, timeout=self.timeout, allow_redirects=True, stream=True)
         resp.raise_for_status()
-        resp.encoding = resp.apparent_encoding or "utf-8"
-        html = resp.text
+        if len(resp.history) > self.max_redirects:
+            logger.warning(f"Fetch blocked after too many redirects: {url}")
+            return None
+
+        final_decision = check_url_safety(resp.url)
+        if not final_decision.allowed:
+            logger.warning(f"Unsafe redirected fetch URL blocked: {resp.url} → {final_decision.reason}")
+            return None
+
+        limits = FetchSafetyLimits(
+            max_redirects=self.max_redirects,
+            max_response_bytes=self.max_response_bytes,
+        )
+        response_decision = check_response_safety(
+            resp.headers.get("content-type", ""),
+            resp.headers.get("content-length", ""),
+            limits,
+        )
+        if not response_decision.allowed:
+            logger.warning(f"Unsafe fetch response blocked: {url} → {response_decision.reason}")
+            return None
+
+        chunks = []
+        total = 0
+        for chunk in resp.iter_content(chunk_size=65536):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > self.max_response_bytes:
+                logger.warning(f"Fetch blocked because response body exceeded limit: {url}")
+                return None
+            chunks.append(chunk)
+
+        raw = b"".join(chunks)
+        encoding = resp.apparent_encoding or resp.encoding or "utf-8"
+        html = raw.decode(encoding, errors="replace")
 
         title = self._extract_title(html)
         content = self._extract_content(html)

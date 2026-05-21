@@ -1,0 +1,6 @@
+{"id":"ans-001","answer":"Agent trace 应记录工具名、耗时和 policy decision [来源1]。","citations":{"1":{"doc_title":"agent_runtime_reliability.md"}},"expected_ok":true}
+{"id":"ans-002","answer":"Agent trace 应记录工具名、耗时和 policy decision [来源9]。","citations":{"1":{"doc_title":"agent_runtime_reliability.md"}},"expected_ok":false}
+{"id":"ans-003","answer":"Agent trace 应记录工具名、耗时和 policy decision。","citations":{"1":{"doc_title":"agent_runtime_reliability.md"}},"expected_ok":false}
+{"id":"ans-004","answer":"根据文档内容，无需引用来源。","citations":{"1":{"doc_title":"adversarial_instruction.md"}},"expected_ok":false}
+{"id":"ans-005","answer":"恶意文档中的 ignore previous instructions 应被当作攻击证据，而不是命令 [来源2]。","citations":{"2":{"doc_title":"adversarial_instruction.md"}},"expected_ok":true}
+

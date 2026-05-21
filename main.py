@@ -74,6 +74,14 @@ async def lifespan(app: FastAPI):
             logger.info(f"Loaded index: {retriever.faiss_index.ntotal} vectors")
         except Exception as e:
             logger.warning(f"Failed to load index: {e}")
+
+    # 启动时自动索引知识库目录 (增量)
+    if config.rag.knowledge_base_dir and os.path.isdir(config.rag.knowledge_base_dir):
+        from rag.indexer import DirectoryIndexer
+        indexer = DirectoryIndexer(retriever)
+        result = indexer.index_directory(config.rag.knowledge_base_dir)
+        logger.info(f"Auto-indexed knowledge_base_dir: {result['indexed']} new, {result['skipped']} skipped")
+
     agent = ResearchAgent(retriever)
     logger.info("ResearchGPT started")
     yield
@@ -120,6 +128,12 @@ class ChatResponse(BaseModel):
     clarification_question: str = ""
     plan: Optional[dict] = None
     reflection: Optional[dict] = None
+    run_id: str = ""
+    trace: Optional[dict] = None
+    answer_validation: Optional[dict] = None
+    memory_conflicts: list[dict] = []
+    needs_memory_confirmation: bool = False
+    memory_conflict_resolution: Optional[dict] = None
 
 
 class DocUploadResponse(BaseModel):
@@ -127,6 +141,15 @@ class DocUploadResponse(BaseModel):
     filename: str
     num_chunks: int
     message: str
+
+
+class RunListResponse(BaseModel):
+    runs: list[dict]
+
+
+class RunTraceResponse(BaseModel):
+    run_id: str
+    trace: dict
 
 
 # ============================================================
@@ -199,6 +222,42 @@ async def list_documents():
             docs[c.doc_id] = {"doc_id": c.doc_id, "title": c.doc_title, "num_chunks": 0}
         docs[c.doc_id]["num_chunks"] += 1
     return {"documents": list(docs.values()), "total_chunks": len(retriever.chunks)}
+
+
+class IndexDirRequest(BaseModel):
+    directory: str = Field(..., description="要索引的目录路径")
+
+
+@app.post("/documents/index_directory")
+async def index_directory(request: IndexDirRequest):
+    """索引整个目录 (增量，跳过已索引文件)"""
+    from rag.indexer import DirectoryIndexer
+    if not os.path.isdir(request.directory):
+        raise HTTPException(status_code=400, detail=f"目录不存在: {request.directory}")
+    indexer = DirectoryIndexer(retriever)
+    result = indexer.index_directory(request.directory)
+    return result
+
+
+@app.get("/runs", response_model=RunListResponse)
+async def list_runs(limit: int = 20, session_id: Optional[str] = None):
+    if agent is None:
+        raise HTTPException(status_code=503, detail="Agent not initialized")
+    if agent.trace_store is None:
+        return RunListResponse(runs=[])
+    return RunListResponse(runs=agent.trace_store.list_runs(limit=limit, session_id=session_id))
+
+
+@app.get("/runs/{run_id}", response_model=RunTraceResponse)
+async def get_run_trace(run_id: str):
+    if agent is None:
+        raise HTTPException(status_code=503, detail="Agent not initialized")
+    if agent.trace_store is None:
+        raise HTTPException(status_code=404, detail="Trace persistence is disabled")
+    trace = agent.trace_store.get_run(run_id)
+    if trace is None:
+        raise HTTPException(status_code=404, detail=f"Run not found: {run_id}")
+    return RunTraceResponse(run_id=run_id, trace=trace)
 
 
 @app.get("/memory/stats")

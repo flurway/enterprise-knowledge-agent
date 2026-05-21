@@ -111,11 +111,12 @@ body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif
 
   <div class="chat-area">
     <div class="messages" id="messages">
-      <div class="msg system">上传文档到知识库，然后开始提问</div>
+      <div class="msg system">上传文档到知识库，或直接提问（支持 Web 搜索）</div>
     </div>
     <div class="quick-actions">
       <button class="quick-btn" onclick="sendQuick('RAG和Fine-tune各自适用什么场景？')">RAG vs Fine-tune</button>
-      <button class="quick-btn" onclick="sendQuick('Transformer的注意力机制原理是什么？')">注意力机制</button>
+      <button class="quick-btn" onclick="sendQuick('搜索一下2024年LLM领域最重要的进展')">🔍 搜索LLM进展</button>
+      <button class="quick-btn" onclick="sendQuick('帮我搜索并总结 MCP 协议是什么')">🔍 搜索MCP协议</button>
       <button class="quick-btn" onclick="sendQuick('对比FAISS和Milvus的优缺点')">FAISS vs Milvus</button>
       <button class="quick-btn" onclick="sendQuick('总结一下我之前研究过什么')">回顾研究</button>
     </div>
@@ -209,10 +210,12 @@ function addMsg(type, content, extra={}) {
     }
     html += `<div class="content">${escapeHtml(content)}</div>`;
     if (extra.citations && Object.keys(extra.citations).length > 0) {
-      const cites = Object.entries(extra.citations).map(([id, info]) =>
-        `[${id}] ${info.doc_title}${info.section ? ' > '+info.section : ''}`
-      ).join('\n');
-      html += `<div class="citations">📎 引用来源:\n${escapeHtml(cites)}</div>`;
+      const cites = Object.entries(extra.citations).map(([id, info]) => {
+        const src = info.source && info.source.startsWith('http') ? ` · <a href="${info.source}" target="_blank" style="color:var(--accent)">原文</a>` : '';
+        const sec = info.section ? ' > '+info.section : '';
+        return `[${id}] ${info.doc_title}${sec}${src}`;
+      }).join('\n');
+      html += `<div class="citations">📎 引用来源:\n${cites}</div>`;
     }
     if (extra.plan) {
       const steps = (extra.plan.steps||[]).map(s => `${s.step_id}. ${s.description}`).join('\n');

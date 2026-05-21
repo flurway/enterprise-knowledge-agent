@@ -1,0 +1,7 @@
+{"id":"kb-001","query":"Agent run trace 应该记录哪些 tool call 字段？","expected_doc":"agent_runtime_reliability.md","must_include":["tool name","latency","policy decision"]}
+{"id":"kb-002","query":"长期记忆相似但矛盾时应该怎么处理？","expected_doc":"memory_conflict_safety.md","must_include":["unresolved conflict record","preserve both pieces of evidence"]}
+{"id":"kb-003","query":"RAG 里的外部文档为什么应该标记为 UNTRUSTED_CONTEXT？","expected_doc":"prompt_injection_defense.md","must_include":["UNTRUSTED_CONTEXT","evidence"]}
+{"id":"kb-004","query":"多次检索时 citation id 为什么不能每次从来源1开始？","expected_doc":"rag_citation_eval.md","must_include":["globally unique","overwrite earlier"]}
+{"id":"kb-005","query":"Agent 系统应该怎么设计 MySQL 索引和 trace 表？","expected_doc":"backend_engineering_agent.md","must_include":["agent_runs(session_id, started_at_ms)","tool_calls(run_id, step_id)"]}
+{"id":"kb-006","query":"恶意文档要求 ignore previous instructions 时安全 Agent 应该怎么做？","expected_doc":"adversarial_instruction.md","must_include":["untrusted evidence","should not obey"]}
+

@@ -1,0 +1,39 @@
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local OS/editor files
+.DS_Store
+.idea/
+.vscode/
+
+# Local environment
+.env
+.venv/
+venv/
+
+# Runtime data and private corpora
+data/*.faiss
+data/*.sqlite3
+data/*.sqlite3-shm
+data/*.sqlite3-wal
+data/*_chunks.json
+data/*_meta.json
+data/index_manifest.json
+data/uploads/
+my_papers/
+
+# Local logs/reports generated during experiments
+*.log
+evals/reports/
+
+# Local planning, learning notes, and resume/interview materials
+AGENTS.md
+CLAUDE.md
+PROJECT_*.md
+USAGE_AND_CHANGELOG.md
+commands.txt
